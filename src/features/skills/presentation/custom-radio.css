@@ -1,0 +1,9 @@
+/* Custom radio button styling to use violet instead of blue */
+input[type="radio"].text-violet-600 {
+  accent-color: rgb(124 58 237); /* violet-600 */
+}
+
+input[type="radio"].text-violet-600:focus {
+  outline-color: rgb(221 214 254); /* violet-200 */
+  outline-width: 2px;
+}

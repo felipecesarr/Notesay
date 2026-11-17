@@ -1,0 +1,444 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================
+// AUTH MODELS (Better Auth + Custom)
+// ============================================
+
+model User {
+  id            String    @id @default(cuid())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  name          String
+  image         String?
+  
+  // Stripe fields
+  stripeCustomerId       String?   @unique
+  stripeSubscriptionId   String?   @unique
+  stripePriceId          String?
+  stripeCurrentPeriodEnd DateTime?
+  
+  // Relations
+  skills            Skill[]
+  sessions          Session[]
+  accounts          Account[]
+  flashcards        Flashcard[]
+  practiceTexts     PracticeText[]
+  practiceProgress  PracticeProgress[]
+  youtubeStudies    YouTubeStudy[]
+  pdfStudies        PDFStudy[]
+  notes             Note[]
+  feedbacks         Feedback[]
+  interviewSessions InterviewSession[]
+  chatSessions      ChatSession[]
+  subscription      UserSubscription?
+
+  tokenUsages       TokenUsage[]
+  tokenUsagesDaily  TokenUsageDaily[]
+}
+
+model PracticeText {
+  id        String             @id @default(cuid())
+  userId    String
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  content   String             @db.Text
+  topic     String
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+  progress  PracticeProgress[]
+
+  @@index([userId])
+}
+
+model PracticeProgress {
+  id               String        @id @default(cuid())
+  userId           String
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  practiceTextId   String?
+  practiceText     PracticeText? @relation(fields: [practiceTextId], references: [id], onDelete: Cascade)
+  youtubeStudyId   String?
+  youtubeStudy     YouTubeStudy? @relation(fields: [youtubeStudyId], references: [id], onDelete: Cascade)
+  pdfStudyId       String?
+  pdfStudy         PDFStudy?     @relation(fields: [pdfStudyId], references: [id], onDelete: Cascade)
+  mode             String        // "read-aloud", "shadowing", "listening"
+  completedChunks  Int           @default(0)
+  totalChunks      Int
+  completedIndices String        @default("[]") @db.Text // JSON array of completed chunk indices
+  lastPracticed    DateTime      @default(now())
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@unique([userId, practiceTextId, youtubeStudyId, pdfStudyId, mode])
+  @@index([userId])
+  @@index([practiceTextId])
+  @@index([youtubeStudyId])
+  @@index([pdfStudyId])
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?   @db.Text
+  refreshToken          String?   @db.Text
+  idToken               String?   @db.Text
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?   @db.Text
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  @@unique([identifier, value])
+}
+
+model Skill {
+  id             String   @id @default(cuid())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  description    String
+  systemPrompt   String   @db.Text
+  icon           String   @default("Sparkles")
+  color          String   @default("bg-purple-50 text-purple-500")
+  
+  // Multi-context support: [{type: "pdf|url|video", content: "uri", title: "name"}]
+  contextSources Json?
+  
+  // Interview mode: who dominates the interview
+  interviewMode  String   @default("ai-asks") // "ai-asks" | "user-asks"
+  
+  // Flag for default skills seeded on user creation
+  isDefault      Boolean  @default(false)
+
+  @@index([userId])
+  @@index([userId, isDefault])
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  token      String   @unique
+  expiresAt  DateTime
+  ipAddress  String?
+  userAgent  String?
+
+  @@index([userId])
+}
+
+// ============================================
+// EXISTING MODELS (Your original schema)
+// ============================================
+
+
+
+
+
+// ============================================
+// FLASHCARD MODELS
+// ============================================
+
+model Flashcard {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Card content
+  front       String
+  back        String
+  context     String?
+  tense       String?
+  phonetic    String?
+
+  // Spaced repetition data
+  nextReview  DateTime @default(now())
+  interval    Int      @default(1)
+  easeFactor  Float    @default(2.5)
+
+  // Vocabulary revival tracking (for chat usage)
+  lastUsedInChat  DateTime? // Last time this word was used in chat
+  chatUsageCount  Int       @default(0) // How many times used in chat
+
+  @@index([userId])
+  @@index([nextReview])
+  @@index([userId, lastUsedInChat]) // For revival queries
+}
+
+// ============================================
+// YOUTUBE STUDY MODELS
+// ============================================
+
+model YouTubeStudy {
+  id               String             @id @default(cuid())
+  userId           String
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  videoUrl         String
+  title            String
+  thumbnail        String?
+  extractedContent String             @db.Text
+  summary          String?            @db.Text
+  progress         PracticeProgress[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@index([userId])
+}
+
+// ============================================
+// PDF STUDY MODELS
+// ============================================
+
+model PDFStudy {
+  id               String             @id @default(cuid())
+  userId           String
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileName         String
+  title            String
+  extractedContent String             @db.Text
+  summary          String?            @db.Text
+  status           String             @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  errorMessage     String?
+  progress         PracticeProgress[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ============================================
+// NOTES MODELS
+// ============================================
+
+model Note {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category  NoteCategory
+  title     String
+  content   String       @db.Text
+  metadata  String?      @db.Text // JSON string for flexible data storage
+  sourceId  String?      // Reference to YouTube study, interview session, etc.
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([userId])
+  @@index([category])
+  @@index([sourceId])
+}
+
+enum NoteCategory {
+  HIGHLIGHT    // Text selections/highlights from content
+  TRANSCRIPT   // Interview session transcripts
+  FEEDBACK     // AI-generated feedback (JSON formatted)
+  CHAT         // Saved chat conversations
+  PERSONAL     // User-created personal notes
+}
+
+// ============================================
+// INTERVIEW MODELS (Separate from Chat)
+// ============================================
+
+model InterviewSession {
+  id          String            @id @default(cuid())
+  userId      String
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skillId     String?           // Reference to Skill used
+  title       String            // Auto-generated or user-provided
+  messages    InterviewMessage[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([userId])
+  @@index([skillId])
+}
+
+model InterviewMessage {
+  id                String           @id @default(cuid())
+  sessionId         String
+  session           InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role              String           // "user" | "ai"
+  content           String           @db.Text
+  timestamp         DateTime         @default(now())
+  
+  @@index([sessionId])
+}
+
+// ============================================
+// SCALABLE CHAT MODELS (New Architecture)
+// ============================================
+
+model ChatSession {
+  id        String        @id @default(cuid())
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  messages  ChatMessage[]
+  metadata  String?       @db.Text // JSON string for metadata
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([userId, updatedAt(sort: Desc)]) // Optimized for listing chats
+}
+
+model ChatMessage {
+  id        String      @id @default(cuid())
+  sessionId String
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      String      // "user" | "ai" | "system"
+  content   String      @db.Text
+  sources   String?     @db.Text // JSON string for sources
+  
+  // AI metadata
+  model     String?     // e.g. "gemini-pro"
+  tokenCount Int?
+
+  createdAt DateTime    @default(now())
+  
+  @@index([sessionId, createdAt(sort: Asc)]) // Optimized for loading history
+}
+
+// ============================================
+// FEEDBACK MODELS
+// ============================================
+
+model Feedback {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userMessage    String   @db.Text // The original user message
+  feedbackText   String   @db.Text // AI-generated feedback
+  chatMessageId  String?  // Optional reference to chat message
+  sourceId       String?  // Reference to YouTube study, practice text, etc.
+  savedToNotes   Boolean  @default(false) // Whether user saved this to Notes
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([userId])
+  @@index([chatMessageId])
+  @@index([sourceId])
+  @@index([savedToNotes])
+}
+
+// ============================================
+// SUBSCRIPTION MODEL (Stripe Integration)
+// ============================================
+
+model UserSubscription {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Subscription details
+  status    String   // active, canceled, past_due, trialing, etc.
+  plan      String   // monthly, yearly
+  priceId   String   // Stripe price ID
+  
+  // Stripe metadata
+  stripeSubscriptionId String @unique
+  stripeCustomerId     String
+  stripePriceId        String
+  
+  // Billing periods
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd  Boolean  @default(false)
+  canceledAt         DateTime?
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([status])
+  @@index([stripeSubscriptionId])
+}
+
+// ============================================
+// TOKEN TRACKING MODELS
+// ============================================
+
+model TokenUsage {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feature          String
+  action           String
+  promptTokens     Int
+  completionTokens Int
+  totalTokens      Int
+  model            String
+  requestId        String?
+  latencyMs        Int?
+  createdAt        DateTime @default(now())
+
+  @@index([userId])
+  @@index([feature])
+  @@index([createdAt])
+  @@index([userId, feature, createdAt])
+}
+
+model TokenUsageDaily {
+  id                    String   @id @default(cuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date                  DateTime @db.Date
+  feature               String
+  model                 String
+  totalRequests         Int      @default(0)
+  totalPromptTokens     Int      @default(0)
+  totalCompletionTokens Int      @default(0)
+  totalTokens           Int      @default(0)
+  avgLatencyMs          Int?
+
+  @@unique([userId, date, feature, model])
+  @@index([userId, date])
+  @@index([date])
+}
+
+// ============================================
+// ADMIN MODELS
+// ============================================
+
+model AdminEmail {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  role      String   @default("admin")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+}

@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/aggregate-tokens?cleanup=true",
+      "schedule": "5 0 * * *"
+    }
+  ]
+}
